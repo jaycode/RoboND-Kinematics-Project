@@ -1,9 +1,39 @@
 Robotic arm - Pick & Place project
 ============
 
+[//]: # (Image References)
+[diag-clean]: ./readme_images/diag-clean.png
+[diag-detailed]: ./readme_images/diag-detailed.png
+[diag-zoom]: ./readme_images/diag-zoom.png
+[diag-clean]: ./readme_images/diag-clean.png
+[diag-clean]: ./readme_images/diag-clean.png
+[diag-clean]: ./readme_images/diag-clean.png
+
+
 In this project, we are working with a simulation of Kuka KR210 to pick up cans from a shelf and then put them in a dropbox.
 
-# How to Run
+# Forward and Inverse Kinematics
+
+Forward Kinematics is a set of methods to calculate the final coordinate position of end effector of a conjoined links (e.g. robotic arms, limbs, etc.), given parameters of each joint between links. In this example,
+
+![O0 to WC][1]
+
+# Denavit-Hartenberg (DH) Parameters
+
+
+
+# Basic Solution
+
+## Joint 1 to 3
+
+## Joint 4 to 6
+
+## Problems with basic solution
+
+# Advanced Solution
+
+
+# Appendix 1. How to Run
 
 Make sure you are using robo-nd VM or have Ubuntu+ROS installed locally.
 
@@ -102,8 +132,3 @@ The demo ends when the robot arm reaches at the top of the drop location.
 There is no loopback implemented yet, so you need to close all the terminal windows in order to restart.
 
 In case the demo fails, close all three terminal windows and rerun the script.
-
-# Documentation
-
-## Denavit-Hartenberg (DH) Parameters
-

@@ -32,7 +32,12 @@ test_cases = {1:[[[2.16135,-1.42635,1.55109],
                   [0,-0.999148353,0,1]],
                   [2.15286,0,1.94645],
                   [0,0,0,0,0,0]],
-              5:[]}
+              # Same with 2, but use positive theta 3
+              5:[[[1.0218,-0.79951,0.83335],
+                  [-0.575324,-0.0297466,0.118094,0.808809]],
+                  [0.834551,-0.842984,0.850291],
+                  [-0.79,-0.11,0.94,1.94,1.14,-3.68]]
+             }
 
 
 def rot_x(q):
@@ -78,6 +83,59 @@ def dist(original_pos, target_pos):
     """
     vector = target_pos - original_pos
     return sqrt((vector.T * vector)[0])
+
+def calculate_123(R_EE, px, py, pz, roll, pitch, yaw):
+    # Compensate for rotation discrepancy between DH parameters and Gazebo
+    Rot_err = rot_z(rad(180)) * rot_y(rad(-90))
+
+    # print Rot_err
+    # Matrix([[0,  0, 1],
+    #         [0, -1, 0],
+    #         [1,  0, 0]])
+
+    R_EE = R_EE * Rot_err
+    # print R_EE
+    # Matrix([[r13, -r12, r11],
+    #         [r23, -r22, r21],
+    #         [r33, -r32, r31])
+
+    R_EE = R_EE.subs({'r': roll, 'p': pitch, 'y': yaw})
+    # Find original wrist position with formula described in
+    # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/91d017b1-4493-4522-ad52-04a74a01094c/concepts/a1abb738-84ee-48b1-82d7-ace881b5aec0
+    G = Matrix([[px], [py], [pz]])
+    WC = G - (0.303) * R_EE[:, 2]
+
+    # Uncomment to see how end effector will be when wrist center
+    # is correct. Turns out when WC is correct theta and EE
+    # position errors get larger.
+    # WC = test_case[1]
+
+    # Calculate joint angles using Geometric IK method
+
+    # Relevant lesson:
+    # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/87c52cd9-09ba-4414-bc30-24ae18277d24/concepts/8d553d46-d5f3-4f71-9783-427d4dbffa3a
+    theta1 = atan2(WC[1], WC[0])
+
+    a = 1.501 # Found by using "measure" tool in RViz.
+    b = sqrt(pow((sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35), 2) + \
+        pow((WC[2] - 0.75), 2))
+    c = 1.25 # Length of joint 1 to 2.
+
+    alpha = acos((b*b + c*c - a*a) / (2*b*c))
+    beta = acos((a*a + c*c - b*b) / (2*a*c))
+    # gamma = acos((a*a + b*b - c*c) / (2*a*b))
+    # print("alpha: {} deg / {} rad".format(deg(alpha).evalf(), alpha))
+    # print("beta: {} deg / {} rad".format(deg(beta).evalf(), beta))
+    # print("gamma: {} deg / {} rad".format(deg(gamma).evalf(), gamma))
+
+    theta2 = pi/2 - alpha - atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
+
+    # Look at Z position of -0.054 in link 4 and use it to calculate delta
+    # delta = math.atan2(d,math.sqrt(a**2-d**2))
+    # delta = math.atan2(0.054,math.sqrt(1.501**2-0.054**2))
+    delta = 0.036 
+    theta3 = pi/2 - (beta + delta)
+    return (R_EE, WC, theta1, theta2, theta3)
 
 def test_code(test_case):
     ## Set up code
@@ -172,71 +230,38 @@ def test_code(test_case):
     R_y = rot_y(p)
     R_z = rot_z(y)
     # Rotation matrix of gripper
-    R_EE = R_x * R_y * R_z
-    # print R_G
-    # Matrix([[r11, r12, r13],
-    #         [r21, r22, r23],
-    #         [r31, r32, r33]])
 
-    # Compensate for rotation discrepancy between DH parameters and Gazebo
-    Rot_err = rot_z(rad(180)) * rot_y(rad(-90))
+    ## Test case 1 and 2 work better with z y x
+    R_EE = R_z * R_y * R_x
 
-    # print Rot_err
-    # Matrix([[0,  0, 1],
-    #         [0, -1, 0],
-    #         [1,  0, 0]])
+    ## Test case 3 and 5 work better with x y z
+    # R_EE = R_x * R_y * R_z
+    # Hypothesis: When theta3 > 0.0, use xyz, otherwise zyx
 
-    R_EE = R_EE * Rot_err
-    # print R_EE
-    # Matrix([[r13, -r12, r11],
-    #         [r23, -r22, r21],
-    #         [r33, -r32, r31])
 
-    R_EE = R_EE.subs({'r': roll, 'p': pitch, 'y': yaw})
-    # Find original wrist position with formula described in
-    # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/91d017b1-4493-4522-ad52-04a74a01094c/concepts/a1abb738-84ee-48b1-82d7-ace881b5aec0
-    G = Matrix([[px], [py], [pz]])
-    WC = G - (0.303) * R_EE[:, 2]
-    # WC = test_case[1]
+    R_EE, WC, theta1, theta2, theta3 = calculate_123(R_EE, px, py, pz, roll, pitch, yaw)
 
-    # Calculate joint angles using Geometric IK method
-
-    # Relevant lesson:
-    # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/87c52cd9-09ba-4414-bc30-24ae18277d24/concepts/8d553d46-d5f3-4f71-9783-427d4dbffa3a
-    theta1 = atan2(WC[1], WC[0])
-
-    a = 1.501 # Found by using "measure" tool in RViz.
-    b = sqrt(pow((sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35), 2) + \
-        pow((WC[2] - 0.75), 2))
-    c = 1.25 # Length of joint 1 to 2.
-
-    alpha = acos((b*b + c*c - a*a) / (2*b*c))
-    beta = acos((a*a + c*c - b*b) / (2*a*c))
-    gamma = acos((a*a + b*b - c*c) / (2*a*b))
-    # print("alpha: {} deg / {} rad".format(deg(alpha).evalf(), alpha))
-    # print("beta: {} deg / {} rad".format(deg(beta).evalf(), beta))
-    # print("gamma: {} deg / {} rad".format(deg(gamma).evalf(), gamma))
-
-    theta2 = pi/2 - alpha - atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
-
-    # Look at Z position of -0.054 in link 4 and use it to calculate delta
-    delta = 0.036 
-    theta3 = pi/2 - (beta + delta)
-
-    # Joint 4, 5, 6
-    R_EE2 = (R_z * R_y * R_z).subs({'r': roll, 'p': pitch, 'y': yaw})
+    if theta3.evalf() > 0.0:
+        R_EE = R_x * R_y * R_z
+        R_EE, WC, theta1, theta2, theta3 = calculate_123(R_EE, px, py, pz, roll, pitch, yaw)
 
     R0_3 = T0_1[0:3,0:3] * T1_2[0:3,0:3] * T2_3[0:3,0:3]
     R0_3 = R0_3.evalf(subs={q1:theta1, q2:theta2, q3:theta3})
     R3_6 = R0_3.inv("LU") * R_EE
-    print("R3_6:")
-    pprint(simplify(R3_6))
     R3_6_sym = simplify(T3_4[0:3,0:3] * T4_5[0:3,0:3] * T5_6[0:3,0:3] * T6_EE[0:3,0:3])
     print("R3_6 symbols:")
     pprint(R3_6_sym)
     # [-sin(q4)*sin(q6) + cos(q4)*cos(q5)*cos(q6), -sin(q4)*cos(q6) - sin(q6)*cos(q4)*cos(q5), -sin(q5)*cos(q4)],
     # [                           sin(q5)*cos(q6),                           -sin(q5)*sin(q6),          cos(q5)],
     # [-sin(q4)*cos(q5)*cos(q6) - sin(q6)*cos(q4),  sin(q4)*sin(q6)*cos(q5) - cos(q4)*cos(q6),  sin(q4)*sin(q5)]])
+    
+    ## Cross-check the result. See if R3_6 calculation was correct.
+    val = R3_6_sym.evalf(subs={q4:test_case[2][3], q5:test_case[2][4], q6:test_case[2][5]})
+    print("R3_6:")
+    pprint(simplify(R3_6))
+   
+    print("val:")
+    pprint(val)
 
     ## Using all simple parameters
     theta6 = atan2(-R3_6[1,1], R3_6[1,0])# +0.45370228
@@ -247,20 +272,15 @@ def test_code(test_case):
     cq4 = -R3_6[0,2]/sin(theta5)
     theta4 = atan2(sq4, cq4)
 
-    # Theta 4 error is: 2.02239652
-    # Theta 5 error is: 0.80492752
-    # Theta 6 error is: 0.45370228
-
-
-    ## A bit more complex
-
-    # TODO
+    # Theta 4 error is: 0.00172067
+    # Theta 5 error is: 0.00197873
+    # Theta 6 error is: 0.00251871
 
     ## From walkthrough
 
-    # theta6 = atan2(-R3_6[1,1], R3_6[1,0])# +0.45370228
-    # theta4 = atan2(R3_6[2,2], -R3_6[0,2])    
-    # theta5  = atan2(sqrt(R3_6[0,2]*R3_6[0,2] + R3_6[2,2]*R3_6[2,2]), R3_6[1,2])
+    theta6_1 = atan2(-R3_6[1,1], R3_6[1,0])# +0.45370228
+    theta4_1 = atan2(R3_6[2,2], -R3_6[0,2])    
+    theta5_1  = atan2(sqrt(R3_6[0,2]*R3_6[0,2] + R3_6[2,2]*R3_6[2,2]), R3_6[1,2])
 
     print("theta1: {} deg / {} rad".format(deg(theta1).evalf(), theta1.evalf()))
     print("theta2: {} deg / {} rad".format(deg(theta2).evalf(), theta2.evalf()))
@@ -268,15 +288,15 @@ def test_code(test_case):
     print("theta4: {} deg / {} rad".format(deg(theta4).evalf(), theta4.evalf()))
     print("theta5: {} deg / {} rad".format(deg(theta5).evalf(), theta5.evalf()))
     print("theta6: {} deg / {} rad".format(deg(theta6).evalf(), theta6.evalf()))
+    print("theta4_1: {} deg / {} rad".format(deg(theta4_1).evalf(), theta4_1.evalf()))
+    print("theta5_1: {} deg / {} rad".format(deg(theta5_1).evalf(), theta5_1.evalf()))
+    print("theta6_1: {} deg / {} rad".format(deg(theta6_1).evalf(), theta6_1.evalf()))
     # theta1 = 1
     # theta2 = 1
     # theta3 = 1
     # theta4 = 1
     # theta5 = 1
     # theta6 = 1
-
-
-
 
     ## 
     ########################################################################################
@@ -357,6 +377,6 @@ def test_code(test_case):
 
 if __name__ == "__main__":
     # Change test case number for different scenarios
-    test_case_number = 1
+    test_case_number = 5
 
     test_code(test_cases[test_case_number])

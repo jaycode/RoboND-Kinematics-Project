@@ -7,21 +7,21 @@
     <param name="use_gui" value="true"/>
     <rosparam>
       zeros:
-        joint_1: -0.65
-        joint_2: 0.45
-        joint_3: -0.36
-        joint_4: 2.97
-        joint_5: 1.59
-        joint_6: 0.04
+        joint_1: -0.79
+        joint_2: -0.11
+        joint_3: 0.94
+        joint_4: 1.94
+        joint_5: 1.14
+        joint_6: -3.68
     </rosparam>
     <rosparam1>
       zeros:
-        joint_1: -0.65
-        joint_2: 0.45
-        joint_3: -0.36
-        joint_4: 0.95
-        joint_5: 0.79
-        joint_6: 0.49
+        joint_1: -2.99
+        joint_2: -0.12
+        joint_3: 0.94
+        joint_4: 4.06
+        joint_5: 1.29
+        joint_6: -4.12
     </rosparam1>
   </node>
 

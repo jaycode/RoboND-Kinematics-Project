@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
+# Python 2.7
+# Optimized for faster running time
 
 from sympy import *
 from time import time
 from mpmath import radians
 import tf
-import pdb
+
 
 '''
 Format of test case is [ [[EE position],[EE orientation as quaternions]],[WC location],[joint angles]]
@@ -15,7 +17,8 @@ to find the position of the wrist center. These newly generated test cases can b
 
 test_cases = {1:[[[2.16135,-1.42635,1.55109],
                   [0.708611,0.186356,-0.157931,0.661967]],
-                  [1.89451,-1.44302,1.69366],
+                  # [1.89451,-1.44302,1.69366],
+                  [1.89451,-1.4437,1.6876],
                   [-0.65,0.45,-0.36,0.95,0.79,0.49]],
               2:[[[-0.56754,0.93663,3.0038],
                   [0.62073, 0.48318,0.38759,0.480629]],
@@ -29,7 +32,12 @@ test_cases = {1:[[[2.16135,-1.42635,1.55109],
                   [0,-0.999148353,0,1]],
                   [2.15286,0,1.94645],
                   [0,0,0,0,0,0]],
-              5:[]}
+              # Same with 2, but use positive theta 3
+              5:[[[1.0218,-0.79951,0.83335],
+                  [-0.575324,-0.0297466,0.118094,0.808809]],
+                  [0.834551,-0.842984,0.850291],
+                  [-0.79,-0.11,0.94,1.94,1.14,-3.68]]
+             }
 
 
 def rot_x(q):
@@ -65,11 +73,56 @@ def rad(deg):
     """
     return deg * pi/180.
 
+def deg(rad):
+    """ Convert radian to degree.
+    """
+    return rad * 180 / pi
+
 def dist(original_pos, target_pos):
     """ Find distance from given original and target position.
     """
     vector = target_pos - original_pos
     return sqrt((vector.T * vector)[0])
+
+def calculate_123(R_EE, px, py, pz, roll, pitch, yaw):
+    # Compensate for rotation discrepancy between DH parameters and Gazebo
+    Rot_err = rot_z(rad(180)) * rot_y(rad(-90))
+
+    # print Rot_err
+    # Matrix([[0,  0, 1],
+    #         [0, -1, 0],
+    #         [1,  0, 0]])
+
+    R_EE = R_EE * Rot_err
+    # print R_EE
+    # Matrix([[r13, -r12, r11],
+    #         [r23, -r22, r21],
+    #         [r33, -r32, r31])
+
+    R_EE = R_EE.subs({'r': roll, 'p': pitch, 'y': yaw})
+    # Find original wrist position with formula described in
+    # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/91d017b1-4493-4522-ad52-04a74a01094c/concepts/a1abb738-84ee-48b1-82d7-ace881b5aec0
+    G = Matrix([[px], [py], [pz]])
+    WC = G - (0.303) * R_EE[:, 2]
+
+    # Calculate joint angles using Geometric IK method
+    # Relevant lesson:
+    # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/87c52cd9-09ba-4414-bc30-24ae18277d24/concepts/8d553d46-d5f3-4f71-9783-427d4dbffa3a
+    theta1 = atan2(WC[1], WC[0])
+
+    a = 1.501 # Found by using "measure" tool in RViz.
+    b = sqrt(pow((sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35), 2) + \
+        pow((WC[2] - 0.75), 2))
+    c = 1.25 # Length of joint 1 to 2.
+
+    alpha = acos((b*b + c*c - a*a) / (2*b*c))
+    beta = acos((a*a + c*c - b*b) / (2*a*c))
+    theta2 = pi/2 - alpha - atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
+    
+    # Look at Z position of -0.054 in link 4 and use it to calculate delta
+    delta = 0.036 
+    theta3 = pi/2 - (beta + delta)
+    return (R_EE, WC, theta1, theta2, theta3)
 
 def test_code(test_case):
     ## Set up code
@@ -124,7 +177,7 @@ def test_code(test_case):
          alpha6:        0, a6:      0, d7: 0.303, q7: 0
     }
 
-    # Define Modified DH Transformation matrix
+    # Create individual transformation matrices
     T0_1 = trans_matrix(alpha0, a0, d1, q1).subs(s)
     T1_2 = trans_matrix(alpha1, a1, d2, q2).subs(s)
     T2_3 = trans_matrix(alpha2, a2, d3, q3).subs(s)
@@ -133,21 +186,9 @@ def test_code(test_case):
     T5_6 = trans_matrix(alpha5, a5, d6, q6).subs(s)
     T6_EE = trans_matrix(alpha6, a6, d7, q7).subs(s)
 
-    # Create individual transformation matrices
-    T0_2 = simplify(T0_1 * T1_2).subs(s)
-    T0_3 = simplify(T0_2 * T2_3).subs(s)
-    # T0_4 = simplify(T0_3 * T3_4)
-    # # Wrist Center
-    # T0_5 = simplify(T0_4 * T4_5)
-    # T0_6 = simplify(T0_5 * T5_6)
-    # End Effector
-    T0_EE = simplify(T0_3 * T3_4 * T4_5 * T5_6 * T6_EE)
+    T0_EE = simplify(T0_1 * T1_2 * T2_3 * T3_4 * T4_5 * T5_6 * T6_EE)
 
     print("\nTime to create transformation matrices: %04.4f seconds" % (time() - start_time))
-
-    # From walkthrough. Update all lines below that use T.
-    # No difference in result and performance compared with the above.
-    # T0_G = T0_1 * T1_2 * T2_3 * T3_4 * T4_5 * T5_6 * T6_G
 
     # --- IK code ---
 
@@ -170,107 +211,25 @@ def test_code(test_case):
     R_x = rot_x(r)
     R_y = rot_y(p)
     R_z = rot_z(y)
+
     # Rotation matrix of gripper
-    R_EE = R_x * R_y * R_z
-    # print R_G
-    # Matrix([[r11, r12, r13],
-    #         [r21, r22, r23],
-    #         [r31, r32, r33]])
+    R_EE = R_z * R_y * R_x
+    R_EE, WC, theta1, theta2, theta3 = calculate_123(R_EE, px, py, pz, roll, pitch, yaw)
+    if theta3.evalf() > 0.0:
+        R_EE = R_x * R_y * R_z
+        R_EE, WC, theta1, theta2, theta3 = calculate_123(R_EE, px, py, pz, roll, pitch, yaw)
 
-    # Compensate for rotation discrepancy between DH parameters and Gazebo
-    Rot_err = rot_z(rad(180)) * rot_y(rad(-90))
-
-    # print Rot_err
-    # Matrix([[0,  0, 1],
-    #         [0, -1, 0],
-    #         [1,  0, 0]])
-
-    R_EE = R_EE * Rot_err
-    # print R_EE
-    # Matrix([[r13, -r12, r11],
-    #         [r23, -r22, r21],
-    #         [r33, -r32, r31])
-
-    R_EE = R_EE.subs({'r': roll, 'p': pitch, 'y': yaw})
-    # Find wrist position with formula described in
-    # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/91d017b1-4493-4522-ad52-04a74a01094c/concepts/a1abb738-84ee-48b1-82d7-ace881b5aec0
-    G = Matrix([[px], [py], [pz]])
-    # d7: Length of WC to G
-    WC = G - (s[d6] + s[d7]) * R_EE[:, 2]
-
-    # Calculate joint angles using Geometric IK method
-
-    # Relevant lesson:
-    # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/87c52cd9-09ba-4414-bc30-24ae18277d24/concepts/8d553d46-d5f3-4f71-9783-427d4dbffa3a
-    theta1 = atan2(WC[1], WC[0])
-    # print(WC)
-    # print(theta1)
-
-
-    # https://www.mathsisfun.com/algebra/trig-solving-triangles.html
-
-    # Position of link 2 (O2)
-    # T0_2 = T0_1 * T1_2
-    O2 = T0_2.subs({"q1": theta1})[:3, 3]
-
-    # c is then the distance between O2 and WC
-    c = dist(O2, WC)
-    # This was the method shown in the walkthrough. It resulted in exactly same
-    # value and running time, so we don't use it.
-    # c = sqrt(pow((sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35), 2) + pow((WC[2] - 0.75), 2))
-
-    a = s[a2]
-    b = s[d4]
-
-    # d is z position of WC minus Z position of O2.
-    d = WC[2] - O2[2]
-    e = sqrt(c**2 - d **2)
-
-    delta = atan2(d, e)
-    beta = acos((a*a + c*c - b*b) / (2 * a * c))
-    theta2 = rad(90) - beta - delta
-    # theta2 = rad(90) - beta - atan2(WC[2]-0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
-
-    alpha = acos((b*b + c*c - a*a) / (2 * b * c))
-    gamma = (rad(180) - alpha - beta)
-    # From walkthrough, no difference.
-    # gamma = acos((a*a + b*b - c*c) / (2 * a * b))
-    theta3 = (rad(90) - alpha - (rad(180)-alpha-gamma))
-    # theta3 = rad(90) - (alpha + 0.036)
-
-    # The following is similar with (T0_1[:3,:3] * T1_2[:3,:3] * T2_3[:3,:3]).simplify()
-    R0_3 = T0_3[:3,:3]
-    # From walkthrough, no difference
-    # R0_3 = T0_1[:3,:3] * T1_2[:3,:3] * T2_3[:3,:3]
+    R0_3 = T0_1[0:3,0:3] * T1_2[0:3,0:3] * T2_3[0:3,0:3]
+    R0_3 = R0_3.evalf(subs={q1:theta1, q2:theta2, q3:theta3})
     R3_6 = R0_3.inv("LU") * R_EE
 
-    # Steps from https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/87c52cd9-09ba-4414-bc30-24ae18277d24/concepts/a124f98b-1ed5-45f5-b8eb-6c40958c1a6b
-    # r31 = R3_6[2,0]
-    # r11 = R3_6[0,0]
-    # r21 = R3_6[1,0]
-    # r32 = R3_6[2,1]
-    # r33 = R3_6[2,2]
-    # theta5  = atan2(-r31, sqrt(r11 * r11 + r21 * r21))
-    # theta6 = atan2(r32, r33)
-    # theta4 = atan2(r21, r11)
-
-    # Steps from walkthrough - Got larger theta errors, somehow, but lower
-    # overall errors.
-    theta4 = atan2(R3_6[2,2], R3_6[0,2])
-    theta5  = atan2(sqrt(R3_6[0,2]*R3_6[0,2] + R3_6[2,2]*R3_6[2,2]),R3_6[1,2])
-    theta6 = atan2(-R3_6[1,1],R3_6[1,0])
-
-    theta2 = theta2.evalf()
-    theta3 = theta3.evalf()
-    theta4 = theta4.evalf(subs={"q1":theta1, "q2":theta2, "q3":theta3})
-    theta5 = theta5.evalf(subs={"q1":theta1, "q2":theta2, "q3":theta3})
-    theta6 = theta6.evalf(subs={"q1":theta1, "q2":theta2, "q3":theta3})
-    print("\nTime to create thetas: %04.4f seconds" % (time() - ik_start_time))
-
-    # 
-    # theta2 = atan2(s[""])
-
-
+    theta6 = atan2(-R3_6[1,1], R3_6[1,0])# +0.45370228
+    sq5 = -R3_6[1,1]/sin(theta6)
+    cq5 = R3_6[1,2]
+    theta5 = atan2(sq5, cq5)
+    sq4 = R3_6[2,2]/sin(theta5)
+    cq4 = -R3_6[0,2]/sin(theta5)
+    theta4 = atan2(sq4, cq4)
 
     ## 
     ########################################################################################
@@ -281,15 +240,26 @@ def test_code(test_case):
 
     ## (OPTIONAL) YOUR CODE HERE!
 
-    EE = T0_EE.evalf(subs={"q1":theta1, "q2":theta2, "q3":theta3,
-                           "q4":theta4, "q5":theta5, "q6":theta6})[:3, 3]
+    # WC = T0_5.evalf(subs={"q1":theta1, "q2":theta2, "q3":theta3,
+    #                        "q4":theta4, "q5":theta5, "q6":theta6})[:3, 3]
 
+    # print("WC: {}".format(WC))
+    # O1 = T0_1.evalf(subs={"q1":theta1, "q2":theta2, "q3":theta3,
+    #                        "q4":theta4, "q5":theta5, "q6":theta6})[:3, 3]
+    # print("O1: {}".format(O1))
+    # O2 = T0_2.evalf(subs={"q1":theta1, "q2":theta2, "q3":theta3,
+    #                        "q4":theta4, "q5":theta5, "q6":theta6})[:3, 3]
+    # print("O2: {}".format(O2))
+    EE = T0_EE.evalf(subs={"q1":theta1, "q2":theta2, "q3":theta3,
+                           "q4":theta4, "q5":theta5, "q6":theta6})
+
+    # print("end effector:\n{}".format(EE))
     ## End your code input for forward kinematics here!
     ########################################################################################
 
     ## For error analysis please set the following variables of your WC location and EE location in the format of [x,y,z]
-    your_wc = WC # <--- Load your calculated WC values in this array
-    your_ee = EE # <--- Load your calculated end effector value from your forward kinematics
+    your_wc = [WC[0], WC[1], WC[2]] # <--- Load your calculated WC values in this array
+    your_ee = EE[:3, 3] # <--- Load your calculated end effector value from your forward kinematics
     ########################################################################################
 
     ## Error analysis
@@ -340,6 +310,6 @@ def test_code(test_case):
 
 if __name__ == "__main__":
     # Change test case number for different scenarios
-    test_case_number = 4
+    test_case_number = 5
 
     test_code(test_cases[test_case_number])

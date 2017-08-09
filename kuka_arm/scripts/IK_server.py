@@ -18,6 +18,7 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from geometry_msgs.msg import Pose
 from mpmath import *
 from sympy import *
+import csv
 
 def rot_x(q):
     R_x = Matrix([[ 1,              0,        0],
@@ -58,6 +59,46 @@ def dist(original_pos, target_pos):
     vector = target_pos - original_pos
     return sqrt((vector.T * vector)[0])
 
+def calculate_123(R_EE, px, py, pz, roll, pitch, yaw):
+    # Compensate for rotation discrepancy between DH parameters and Gazebo
+    Rot_err = rot_z(rad(180)) * rot_y(rad(-90))
+
+    # print Rot_err
+    # Matrix([[0,  0, 1],
+    #         [0, -1, 0],
+    #         [1,  0, 0]])
+
+    R_EE = R_EE * Rot_err
+    # print R_EE
+    # Matrix([[r13, -r12, r11],
+    #         [r23, -r22, r21],
+    #         [r33, -r32, r31])
+
+    R_EE = R_EE.subs({'r': roll, 'p': pitch, 'y': yaw})
+    # Find original wrist position with formula described in
+    # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/91d017b1-4493-4522-ad52-04a74a01094c/concepts/a1abb738-84ee-48b1-82d7-ace881b5aec0
+    G = Matrix([[px], [py], [pz]])
+    WC = G - (0.303) * R_EE[:, 2]
+
+    # Calculate joint angles using Geometric IK method
+    # Relevant lesson:
+    # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/87c52cd9-09ba-4414-bc30-24ae18277d24/concepts/8d553d46-d5f3-4f71-9783-427d4dbffa3a
+    theta1 = atan2(WC[1], WC[0])
+
+    a = 1.501 # Found by using "measure" tool in RViz.
+    b = sqrt(pow((sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35), 2) + \
+        pow((WC[2] - 0.75), 2))
+    c = 1.25 # Length of joint 1 to 2.
+
+    alpha = acos((b*b + c*c - a*a) / (2*b*c))
+    beta = acos((a*a + c*c - b*b) / (2*a*c))
+    theta2 = pi/2 - alpha - atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
+
+    # Look at Z position of -0.054 in link 4 and use it to calculate delta
+    delta = 0.036 
+    theta3 = pi/2 - (beta + delta)
+    return (R_EE, WC, theta1, theta2, theta3)
+
 def handle_calculate_IK(req):
     rospy.loginfo("Received %s eef-poses from the plan" % len(req.poses))
     if len(req.poses) < 1:
@@ -93,19 +134,6 @@ def handle_calculate_IK(req):
 
         T0_EE = simplify(T0_1 * T1_2 * T2_3 * T3_4 * T4_5 * T5_6 * T6_EE)
 
-        # From walkthrough. Update all lines below that use T.
-        # No difference in result and performance compared with the above.
-        # T0_G = T0_1 * T1_2 * T2_3 * T3_4 * T4_5 * T5_6 * T6_G
-
-        # Debug
-        # print("T0_1 = ", T0_1.evalf(subs=s))
-        # print("T0_2 = ", T0_2.evalf(subs=s))
-        # print("T0_3 = ", T0_3.evalf(subs=s))
-        # print("T0_4 = ", T0_4.evalf(subs=s))
-        # print("T0_5 = ", T0_5.evalf(subs=s))
-        # print("T0_6 = ", T0_6.evalf(subs=s))
-        # print("T0_G = ", T0_G.evalf(subs=s))
-
         # Extract rotation matrices from the transformation matrices
         ###
 
@@ -133,76 +161,41 @@ def handle_calculate_IK(req):
             R_x = rot_x(r)
             R_y = rot_y(p)
             R_z = rot_z(y)
+
             # Rotation matrix of gripper
-            # R_EE = R_x * R_y * R_z
             R_EE = R_z * R_y * R_x
-            # print R_G
-            # Matrix([[r11, r12, r13],
-            #         [r21, r22, r23],
-            #         [r31, r32, r33]])
+            R_EE, WC, theta1, theta2, theta3 = calculate_123(R_EE, px, py, pz, roll, pitch, yaw)
+            if theta3.evalf() > 0.0:
+                R_EE = R_x * R_y * R_z
+                R_EE, WC, theta1, theta2, theta3 = calculate_123(R_EE, px, py, pz, roll, pitch, yaw)
 
-            # Compensate for rotation discrepancy between DH parameters and Gazebo
-            Rot_err = rot_z(rad(180)) * rot_y(rad(-90))
+                R0_3 = T0_1[0:3,0:3] * T1_2[0:3,0:3] * T2_3[0:3,0:3]
+                R0_3 = R0_3.evalf(subs={q1:theta1, q2:theta2, q3:theta3})
+                R3_6 = R0_3.inv("LU") * R_EE
 
-            # print Rot_err
-            # Matrix([[0,  0, 1],
-            #         [0, -1, 0],
-            #         [1,  0, 0]])
+            theta6 = atan2(-R3_6[1,1], R3_6[1,0])# +0.45370228
+            sq5 = -R3_6[1,1]/sin(theta6)
+            cq5 = R3_6[1,2]
+            theta5 = atan2(sq5, cq5)
+            sq4 = R3_6[2,2]/sin(theta5)
+            cq4 = -R3_6[0,2]/sin(theta5)
+            theta4 = atan2(sq4, cq4)
 
-            R_EE = R_EE * Rot_err
-            # print R_EE
-            # Matrix([[r13, -r12, r11],
-            #         [r23, -r22, r21],
-            #         [r33, -r32, r31])
+            if x >= len(req.poses):
+                theta5 = theta5_fin
+                theta6 = theta6_fin
 
-            R_EE = R_EE.subs({'r': roll, 'p': pitch, 'y': yaw})
-            # Find original wrist position with formula described in
-            # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/91d017b1-4493-4522-ad52-04a74a01094c/concepts/a1abb738-84ee-48b1-82d7-ace881b5aec0
-            G = Matrix([[px], [py], [pz]])
-            WC = G - (0.303) * R_EE[:, 2]
-
-            # Calculate joint angles using Geometric IK method
-
-            # Relevant lesson:
-            # https://classroom.udacity.com/nanodegrees/nd209/parts/7b2fd2d7-e181-401e-977a-6158c77bf816/modules/8855de3f-2897-46c3-a805-628b5ecf045b/lessons/87c52cd9-09ba-4414-bc30-24ae18277d24/concepts/8d553d46-d5f3-4f71-9783-427d4dbffa3a
-            theta1 = atan2(WC[1], WC[0])
-
-            a = 1.501 # Found by using "measure" tool in RViz.
-            b = sqrt(pow((sqrt(WC[0] * WC[0] + WC[1] * WC[1]) - 0.35), 2) + \
-                pow((WC[2] - 0.75), 2))
-            c = 1.25 # Length of joint 1 to 2.
-
-            alpha = acos((b*b + c*c - a*a) / (2*b*c))
-            beta = acos((a*a + c*c - b*b) / (2*a*c))
-            gamma = acos((a*a + b*b - c*c) / (2*a*b))
-
-            theta2 = pi/2 - alpha - atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
-
-            # Look at Z position of -0.054 in link 4 and use it to calculate delta
-            delta = 0.036 
-            theta3 = pi/2 - (beta + delta)
-
-            R0_3 = T0_1[0:3,0:3] * T1_2[0:3,0:3] * T2_3[0:3,0:3]
-            R0_3 = R0_3.evalf(subs={q1:theta1, q2:theta2, q3:theta3})
-
-            R3_6 = R0_3.inv("LU") * R_EE
-
-            theta4 = atan2(R3_6[2,2], -R3_6[0,2])
-            theta5  = atan2(sqrt(R3_6[0,2]*R3_6[0,2] + R3_6[2,2]*R3_6[2,2]), R3_6[1,2])
-            theta6 = atan2(-R3_6[1,1], R3_6[1,0])
-
-            rospy.loginfo("theta1: {}".format(theta1))
-            rospy.loginfo("theta2: {}".format(theta2))
-            rospy.loginfo("theta3: {}".format(theta3))
-            rospy.loginfo("theta4: {}".format(theta4))
-            rospy.loginfo("theta5: {}".format(theta5))
-            rospy.loginfo("theta6: {}".format(theta6))
-
+            theta1_fin = theta1
+            theta2_fin = theta2
+            theta3_fin = theta3
+            theta4_fin = theta4
+            theta5_fin = theta5
+            theta6_fin = theta6
             ###
 
             # Populate response for the IK request
             # In the next line replace theta1,theta2...,theta6 by your joint angle variables
-            joint_trajectory_point.positions = [theta1, theta2, theta3, theta4, theta5, theta6]
+            joint_trajectory_point.positions = [theta1_fin, theta2_fin, theta3_fin, theta4_fin, theta5_fin, theta6_fin]
             joint_trajectory_list.append(joint_trajectory_point)
 
         rospy.loginfo("length of Joint Trajectory List: %s" % len(joint_trajectory_list))
