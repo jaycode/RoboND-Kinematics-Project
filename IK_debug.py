@@ -60,7 +60,7 @@ def rot_z(q):
                   [      0,        0,       1]])
     
     return R_z
-
+        
 def trans_matrix(alpha, a, d, q):
     T = Matrix([[            cos(q),           -sin(q),           0,             a],
                 [ sin(q)*cos(alpha), cos(q)*cos(alpha), -sin(alpha), -sin(alpha)*d],

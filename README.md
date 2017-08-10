@@ -2,31 +2,93 @@ Robotic arm - Pick & Place project
 ============
 
 [//]: # (Image References)
+[start]: ./readme_images/start.jpg
+[dh]: ./readme_images/dh.png
+[alpha]: ./readme_images/alpha_i-1.png
+[a]: ./readme_images/a_i-1.png
+[d]: ./readme_images/d_i.png
+[theta]: ./readme_images/theta_i.png
+[pi2]: ./readme_images/pi2.png
+[-pi2]: ./readme_images/-pi2.png
+[theta1]: ./readme_images/theta_1.png
+[theta2]: ./readme_images/theta_2.png
+[theta3]: ./readme_images/theta_3.png
+[theta4]: ./readme_images/theta_4.png
+[theta5]: ./readme_images/theta_5.png
+[theta6]: ./readme_images/theta_6.png
+[transform-single]: ./readme_images/transform_single.png
+[transform-simple]: ./readme_images/transform_simple.png
+[transform-comb]: ./readme_images/transform_comb.png
 [diag-clean]: ./readme_images/diag-clean.png
 [diag-detailed]: ./readme_images/diag-detailed.png
 [diag-zoom]: ./readme_images/diag-zoom.png
-[diag-clean]: ./readme_images/diag-clean.png
-[diag-clean]: ./readme_images/diag-clean.png
-[diag-clean]: ./readme_images/diag-clean.png
+[O_1]: ./readme_images/O_1.png
 
+![Start][start]
 
 In this project, we are working with a simulation of Kuka KR210 to pick up cans from a shelf and then put them in a dropbox.
 
+*Note: For information on setting up and running this project, consult Appendix 1 section below.*
+
 # Forward and Inverse Kinematics
 
-Forward Kinematics is a set of methods to calculate the final coordinate position of end effector of a conjoined links (e.g. robotic arms, limbs, etc.), given parameters of each joint between links. In this example,
+Forward Kinematics (FK) is a set of methods to calculate the final coordinate position and rotation of end effector of a conjoined links (e.g. robotic arms, limbs, etc.), given parameters of each joint between links. In this project, these parameters are angles of each joint, totalling 6 joints (i.e. 6 Degrees of Freedom).
 
-![O0 to WC][1]
+Inverse Kinematics (IK), on the other hand, is the exact opposite of FK, where we calculate the parameters from a given coordinate position and rotation.
+
+# Homogenous Transforms
+
+To calculate FK and IK calculation, we attach reference frames to each link of the manipulator and writing the homogeneous transforms from the fixed base link to link 1, link 1 to link 2, and so forth, all the way to the end effector.
 
 # Denavit-Hartenberg (DH) Parameters
 
+To do FK and IK, we are using a method by Jacques Denavit and Richard Hartenberg which requires only four parameters for each reference frame.
+
+![dh][dh]
+
+Following are DH parameters used specifically in this project:
+
+|ID   |![alpha][alpha] |![a][a] |![d][d] |![theta][theta] |
+|:---:|:--------------:|:------:|:------:|:--------------:| 
+|    1|              0 |      0 |   0.75 |  ![q1][theta1] |
+|    2|  ![-pi2][-pi2] |   0.35 |      0 |  ![q2][theta2] |
+|    3|              0 |   1.25 |      0 |  ![q3][theta3] |
+|    4|  ![-pi2][-pi2] | -0.054 |   1.50 |  ![q4][theta4] |
+|    5|    ![pi2][pi2] |      0 |      0 |  ![q5][theta5] |
+|    6|  ![-pi2][-pi2] |      0 |      0 |  ![q6][theta6] |
+|   EE|              0 |      0 |  0.303 |              0 |
+
+**Homogenous transforms** are then combined together. Parameters of each transformation are set from **DH parameters**.Each transformation matrix looks like this:
+
+![\begin{bmatrix}cos(\theta_i) &  - sin(\theta_i) & 0 & a \\ sin(\theta_i)cos(\alpha_{i-1}) & cos(\theta_i)cos(\alpha_{i-1}) &  - sin(\alpha_{i-1}) &  - d  *  sin(\alpha_{i-1}) \\ sin(\theta_i)sin(\alpha_{i-1}) & cos(\theta_i)sin(\alpha_{i-1}) & cos(\alpha_{i-1}) & d  *  cos(\alpha_{i-1}) \\ 0 & 0 & 0 & 1 \end{bmatrix}][transform-single]
+
+Simplified as:
+
+![^{0}_1T][transform-simple]
+
+The links go from 0 to 6 and then followed by EE, that is why in the DH parameters above we have 7 rows. To combine transformations, calculate the dot products of all single transformations:
+
+![^{0}_{EE}T=^{0}_{1}T * ^{1}_{2}T * ^{2}_{3}T * ^{3}_{4}T * ^{4}_{5}T * ^{5}_{6}T * ^{6}_{EE}T][transform-comb]
 
 
 # Basic Solution
 
+From the diagram above, notice that reference frame 4, 5, and 6 intersect at the same coordinate. We treat frame 5 as the **wrist center (WC)**, which then allow us to solve ![theta1][theta1] to ![theta3][theta3] analytically.
+
+Here is a simplified diagram, showing frame 0 (ground) to frame 5 (or WC):
+
+![diag-clean][diag-clean]
+
+![theta1][theta1] is pretty straightforward. We can get it by rotating ![O_1][O_1] about its Z-axis.
+
+![diag-clean][diag-detailed]
+![diag-zoom][diag-zoom]
+
 ## Joint 1 to 3
 
 ## Joint 4 to 6
+
+Our entire 
 
 ## Problems with basic solution
 
