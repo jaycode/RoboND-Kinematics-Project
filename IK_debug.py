@@ -60,7 +60,7 @@ def rot_z(q):
                   [      0,        0,       1]])
     
     return R_z
-        
+
 def trans_matrix(alpha, a, d, q):
     T = Matrix([[            cos(q),           -sin(q),           0,             a],
                 [ sin(q)*cos(alpha), cos(q)*cos(alpha), -sin(alpha), -sin(alpha)*d],
@@ -128,13 +128,14 @@ def calculate_123(R_EE, px, py, pz, roll, pitch, yaw):
     # print("beta: {} deg / {} rad".format(deg(beta).evalf(), beta))
     # print("gamma: {} deg / {} rad".format(deg(gamma).evalf(), gamma))
 
-    theta2 = pi/2 - alpha - atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
+    delta = atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
+    theta2 = pi/2 - alpha - delta
 
-    # Look at Z position of -0.054 in link 4 and use it to calculate delta
-    # delta = math.atan2(d,math.sqrt(a**2-d**2))
-    # delta = math.atan2(0.054,math.sqrt(1.501**2-0.054**2))
-    delta = 0.036 
-    theta3 = pi/2 - (beta + delta)
+    # Look at Z position of -0.054 in link 4 and use it to calculate epsilon
+    # epsilon = math.atan2(d,math.sqrt(a**2-d**2))
+    # epsilon = math.atan2(0.054,math.sqrt(1.501**2-0.054**2))
+    epsilon = 0.036 
+    theta3 = pi/2 - (beta + epsilon)
     return (R_EE, WC, theta1, theta2, theta3)
 
 def test_code(test_case):
@@ -248,12 +249,13 @@ def test_code(test_case):
     R0_3 = T0_1[0:3,0:3] * T1_2[0:3,0:3] * T2_3[0:3,0:3]
     R0_3 = R0_3.evalf(subs={q1:theta1, q2:theta2, q3:theta3})
     R3_6 = R0_3.inv("LU") * R_EE
-    R3_6_sym = simplify(T3_4[0:3,0:3] * T4_5[0:3,0:3] * T5_6[0:3,0:3] * T6_EE[0:3,0:3])
+    R3_6_sym = simplify(T3_4[0:3,0:3] * T4_5[0:3,0:3] * T5_6[0:3,0:3])
     print("R3_6 symbols:")
     pprint(R3_6_sym)
     # [-sin(q4)*sin(q6) + cos(q4)*cos(q5)*cos(q6), -sin(q4)*cos(q6) - sin(q6)*cos(q4)*cos(q5), -sin(q5)*cos(q4)],
     # [                           sin(q5)*cos(q6),                           -sin(q5)*sin(q6),          cos(q5)],
-    # [-sin(q4)*cos(q5)*cos(q6) - sin(q6)*cos(q4),  sin(q4)*sin(q6)*cos(q5) - cos(q4)*cos(q6),  sin(q4)*sin(q5)]])
+    # [-sin(q4)*cos(q5)*cos(q6) - sin(q6)*cos(q4),  sin(q4)*sin(q6)*cos(q5) - cos(q4)*cos(q6),  sin(q4)*sin(q5)]
+
     
     ## Cross-check the result. See if R3_6 calculation was correct.
     val = R3_6_sym.evalf(subs={q4:test_case[2][3], q5:test_case[2][4], q6:test_case[2][5]})

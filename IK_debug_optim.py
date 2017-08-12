@@ -117,11 +117,12 @@ def calculate_123(R_EE, px, py, pz, roll, pitch, yaw):
 
     alpha = acos((b*b + c*c - a*a) / (2*b*c))
     beta = acos((a*a + c*c - b*b) / (2*a*c))
-    theta2 = pi/2 - alpha - atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
-    
-    # Look at Z position of -0.054 in link 4 and use it to calculate delta
-    delta = 0.036 
-    theta3 = pi/2 - (beta + delta)
+    delta = atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
+    theta2 = pi/2 - alpha - delta
+
+    # Look at Z position of -0.054 in link 4 and use it to calculate epsilon
+    epsilon = 0.036 
+    theta3 = pi/2 - (beta + epsilon)
     return (R_EE, WC, theta1, theta2, theta3)
 
 def test_code(test_case):

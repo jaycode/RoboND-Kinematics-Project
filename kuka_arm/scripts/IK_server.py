@@ -92,11 +92,12 @@ def calculate_123(R_EE, px, py, pz, roll, pitch, yaw):
 
     alpha = acos((b*b + c*c - a*a) / (2*b*c))
     beta = acos((a*a + c*c - b*b) / (2*a*c))
-    theta2 = pi/2 - alpha - atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
+    delta = atan2(WC[2] - 0.75, sqrt(WC[0]*WC[0] + WC[1]*WC[1]) - 0.35)
+    theta2 = pi/2 - alpha - delta
 
-    # Look at Z position of -0.054 in link 4 and use it to calculate delta
-    delta = 0.036 
-    theta3 = pi/2 - (beta + delta)
+    # Look at Z position of -0.054 in link 4 and use it to calculate epsilon
+    epsilon = 0.036 
+    theta3 = pi/2 - (beta + epsilon)
     return (R_EE, WC, theta1, theta2, theta3)
 
 def handle_calculate_IK(req):
@@ -165,13 +166,14 @@ def handle_calculate_IK(req):
             # Rotation matrix of gripper
             R_EE = R_z * R_y * R_x
             R_EE, WC, theta1, theta2, theta3 = calculate_123(R_EE, px, py, pz, roll, pitch, yaw)
-            if theta3.evalf() > 0.0:
-                R_EE = R_x * R_y * R_z
-                R_EE, WC, theta1, theta2, theta3 = calculate_123(R_EE, px, py, pz, roll, pitch, yaw)
+            # if theta3.evalf() > 0.0:
+            #     R_EE = R_x * R_y * R_z
+            #     R_EE, WC, theta1, theta2, theta3 = calculate_123(R_EE, px, py, pz, roll, pitch, yaw)
 
-                R0_3 = T0_1[0:3,0:3] * T1_2[0:3,0:3] * T2_3[0:3,0:3]
-                R0_3 = R0_3.evalf(subs={q1:theta1, q2:theta2, q3:theta3})
-                R3_6 = R0_3.inv("LU") * R_EE
+            R0_3 = T0_1[0:3,0:3] * T1_2[0:3,0:3] * T2_3[0:3,0:3]
+            R0_3 = R0_3.evalf(subs={q1:theta1, q2:theta2, q3:theta3})
+            
+            R3_6 = R0_3.inv("LU") * R_EE
 
             theta6 = atan2(-R3_6[1,1], R3_6[1,0])# +0.45370228
             sq5 = -R3_6[1,1]/sin(theta6)
